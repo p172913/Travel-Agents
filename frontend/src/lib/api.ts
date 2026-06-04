@@ -27,6 +27,7 @@ export type TripPlanDetails = {
   itinerary: Record<string, any>;
   budget_breakdown: Record<string, any>;
   explanation: string | null;
+  recommendations: Array<Record<string, any>>;
   created_at: string;
   bookings: Array<Record<string, any>>;
 };

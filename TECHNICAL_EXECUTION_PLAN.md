@@ -258,6 +258,410 @@ Agent       Agent       Agent         Agent
 1. Implement Amadeus / Skyscanner flight search
 2. Implement hotel search via Amadeus or affiliate API
 3. Build ranking logic for best flights/hotels
+4. Add `POST /api/booking` and normalize search response schema
+5. Persist booking candidates and search metadata
+
+---
+
+## Phase 5 — Recommendation Agent (Week 6–7)
+
+### Responsibilities
+
+- Personalized restaurants
+- Activities
+- Hidden gems
+- Local recommendations aligned to travel style
+- Simple preference-driven suggestions
+
+### Output schema
+
+```json
+{
+  "recommendations": [
+    {
+      "name": "Thalassa",
+      "type": "restaurant",
+      "category": "dining",
+      "rating": 4.7,
+      "price_level": "mid",
+      "reason": "Highly rated seaside dinner for sunset",
+      "estimated_cost": 2500
+    }
+  ]
+}
+```
+
+### Status
+
+- Recommendation agent scaffold exists in the repo
+- No recommendation endpoint is wired to the frontend
+- User preference capture and feedback loops are not implemented
+
+### Tasks
+
+1. Define the recommendation output model with type, reason, rating, and cost
+2. Add `POST /api/recommendation` in `api_gateway`
+3. Expand recommendation agent to consume destination, budget, and travel style
+4. Persist recommendations and feedback in DB tables
+5. Add frontend recommendation cards for saved trips and plan details
+
+### Acceptance criteria
+
+- `POST /api/recommendation` returns structured recommendation JSON
+- Recommendation output includes `reason` and category metadata
+- Frontend can display at least 3 recommendation cards inside trip details
+- Basic feedback buttons (`useful`, `not useful`) are wired to the backend
+
+---
+
+## Phase 6 — Orchestrator Agent (Week 7–8)
+
+### Responsibilities
+
+- Coordinate research, budget, booking, and recommendation agents
+- Sequence agent calls and merge partial results
+- Handle agent errors and recover with partial outputs
+- Store orchestration request, status, and timings
+
+### Workflow
+
+```text
+User Prompt
+    |
+Orchestrator
+    +--> Research Agent
+    +--> Budget Agent
+    +--> Booking Agent
+    +--> Recommendation Agent
+    |
+Merge Results
+    v
+Final Travel Plan
+```
+
+### Status
+
+- Orchestrator is architected in the repo
+- Workflow execution is not production hardened
+- Error handling, retries, and agent orchestration state are incomplete
+
+### Tasks
+
+1. Implement the orchestration pipeline using LangGraph or a custom coordinator
+2. Add timeouts and retry logic for each downstream agent call
+3. Define partial-result merge rules and fallback behavior
+4. Persist orchestration requests, results, and logs in DB
+5. Wire `POST /api/plan/orchestrate` to generate a saved trip plan
+
+### Acceptance criteria
+
+- `POST /api/plan/orchestrate` returns a combined plan object
+- Orchestrator can return a partial plan if one agent fails
+- Orchestration request and result are stored in the DB
+- Orchestration latency is measured and logged
+
+---
+
+## Phase 7 — Trip Plan Generator (Week 8–9)
+
+### Responsibilities
+
+- Generate a day-by-day itinerary from merged agent outputs
+- Include hotel, attraction, activities, meals, and travel legs
+- Present a readable schedule with time windows and explanations
+
+### Example output
+
+```markdown
+Day 1
+9:00 AM - Arrive and check in at beachfront hotel
+11:00 AM - Explore the local market
+1:00 PM - Lunch at seaside restaurant
+4:00 PM - Sunset boat cruise
+7:30 PM - Dinner at Thalassa
+```
+
+### Status
+
+- Itinerary model is defined and the repo now generates a structured daily plan
+- Trip detail pages render a readable itinerary and itinerary item metadata
+- The plan includes item-level reasoning for why each activity or booking is recommended
+
+### Tasks
+
+1. Define a `TripItineraryItem` model for date, time, title, location, notes, and explanation
+2. Add itinerary generation logic that merges research, budget, booking, and recommendation outputs
+3. Persist itinerary items with each saved trip plan
+4. Add frontend plan detail views for daily schedules
+5. Add explanation metadata for each itinerary item
+
+### Acceptance criteria
+
+- Saved trips include a structured itinerary with at least 3 days of items
+- Frontend displays a daily schedule per trip
+- Each itinerary item includes a `reason` or `why` field
+- Users can access trip plan details from the `/trips` page
+
+---
+
+## Phase 8 — Explainability Layer (Week 9)
+
+### Responsibilities
+
+- Provide rationale for every recommendation
+- Add trust signals and reasoning details
+
+### Status
+
+- Explainability metadata is implemented in itinerary items and plan explanations
+- Trip details render item-level reasons and recommendation rationale
+- The backend now stores explanation text in saved plans
+
+### Example reason output
+
+```text
+Why AI picked this:
+✓ Within budget
+✓ 4.6 rating
+✓ Near attractions
+✓ Matches travel style
+```
+
+### Tasks
+
+1. Add `reason` and `explanation` metadata to agent outputs
+2. Render explanations in frontend plan view
+3. Store explanation text in DB logs
+4. Add unit tests for explainability output
+
+### Acceptance criteria
+
+- Every major itinerary item includes a reason or explanation
+- Frontend displays the why/reason for each recommended itinerary item
+- Plan explanation text is persisted and visible in trip details
+- Explainability output is covered by tests
+
+---
+
+## Phase 9 — Frontend MVP (Week 9–10)
+
+### Screens
+
+- Authentication
+- Dashboard
+- Planner
+- Generated plan detail
+- Trip detail
+- Share placeholder
+
+### Tasks
+
+1. Build auth screens and protected routes
+2. Add dashboard for saved trips
+3. Add planning form at `/start`
+4. Add `/trips` and `/trips/[tripId]`
+5. Add share page stub for future public links
+
+---
+
+## Phase 10 — Personalization Engine (Week 10–11)
+
+### Responsibilities
+
+- Store preferences and travel style
+- Use feedback to tailor recommendations
+- Support user memory for repeat trips
+
+### Tasks
+
+1. Add preferences and feedback tables
+2. Add endpoints for user profile and preference updates
+3. Store feedback from recommendation cards
+4. Update Pinecone embeddings with user signals
+5. Use personalization in recommendation and orchestrator workflows
+
+---
+
+## Phase 11 — Testing (Week 11–13)
+
+### Unit Testing
+
+- Backend business logic with pytest
+- Frontend components with Jest/React Testing Library
+
+### Integration Testing
+
+- API contracts
+- Orchestration workflow
+- DB persistence
+- Mocked external API integrations
+
+### AI Testing
+
+- Golden prompt dataset of 100 examples
+- Validate output schema and budget accuracy
+- Detect hallucinations and invalid JSON
+
+### Tasks
+
+1. Add unit tests for core backend services
+2. Add integration tests for API flows
+3. Add frontend UI tests for planner flow
+4. Add AI schema validation tests
+5. Implement CI test gating
+
+---
+
+## Phase 12 — Production Deployment (Week 13–14)
+
+### Infrastructure
+
+- AWS ECS Fargate for backend
+- AWS RDS PostgreSQL
+- AWS ElastiCache Redis
+- AWS S3 for assets
+- CloudFront for frontend
+
+### Tasks
+
+1. Create Terraform / CloudFormation templates
+2. Configure staging and production deploy environments
+3. Add GitHub Actions deploy pipelines
+4. Use secrets management and environment isolation
+5. Add database backups and recovery policy
+
+---
+
+## Phase 13 — Beta Launch (Week 15)
+
+### Goals
+
+- Release to 20–50 users
+- Measure plan generation performance
+- Collect user feedback
+
+### Metrics
+
+- Plan generation success rate
+- API latency
+- User satisfaction / NPS
+- Error rate
+
+---
+
+## Phase 14 — Production Launch (Week 16)
+
+### Launch criteria
+
+- All core agents working reliably
+- 95%+ uptime in staging and prod
+- Budget accuracy within ±8%
+- NPS > 50
+- SUS > 85
+- Load tested to 1,000 concurrent users
+
+---
+
+## Engineering Execution Details
+
+### Core data model
+
+Entities:
+
+- `users`
+- `trips`
+- `trip_requests`
+- `trip_plans`
+- `bookings`
+- `preferences`
+- `agent_logs`
+- `feedback`
+
+### API contract examples
+
+#### POST /api/plan/orchestrate
+
+Request:
+
+```json
+{
+  "destination": "Goa",
+  "start_date": "2026-07-01",
+  "end_date": "2026-07-08",
+  "total_budget": 50000,
+  "travel_style": "balanced",
+  "travelers": 2
+}
+```
+
+Response:
+
+```json
+{
+  "trip_id": 123,
+  "plan_id": 456,
+  "plan": {
+    "itinerary": [...],
+    "budget_breakdown": {...},
+    "explanation": "..."
+  }
+}
+```
+
+### DevOps and infrastructure
+
+- Local dev uses `docker compose`
+- Staging and prod use AWS ECS + RDS + ElastiCache
+- GitHub Actions for CI/CD
+- Use secrets manager for API keys and DB credentials
+
+### Observability
+
+- Track metrics: request latency, error rate, agent status, orchestration time
+- Structured logging to a central store
+- Tracing for request and agent workflows
+- Alerts on high latency, errors, and downstream failures
+
+### Security
+
+- Auth required for trip creation and saved trips
+- Secure cookie/JWT strategy for frontend
+- CORS restricted to trusted origins
+- Validate all external data before persisting
+- Protect sensitive user data
+
+### Risk management
+
+- External API failure → fallback / retry / cached results
+- AI hallucinations → schema validation + guardrails
+- Cost overruns → caching, request limiting, API usage monitoring
+- Orchestration latency → parallel calls, timeouts, and degrade gracefully
+- Scope creep → keep MVP focused on core trip planning
+
+---
+
+## What is missing from the project today
+
+1. A fully defined engineering backlog for each phase
+2. Authentication and user profile management
+3. Real external travel API integrations
+4. Production-ready orchestrator workflow
+5. Production deployment IaC and pipelines
+6. Full explainability and personalization
+7. Comprehensive automated testing
+
+---
+
+## Next steps
+
+1. Convert this plan into an issue backlog
+2. Assign tasks to sprints
+3. Implement the highest-risk MVP pieces first
+4. Validate working APIs and frontend flows
+5. Deploy to staging before production
+
+This document now contains the complete technical execution plan needed to take TravelSouls from idea to MVP and production.
+
 4. Save search results in DB and optionally in `Booking` entities
 5. Keep booking status as search-only; do not charge or finalize bookings in MVP
 

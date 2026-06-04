@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api_gateway.config import settings
 from shared.db import init_db, get_db
-from shared.models import User, Trip, TripRequest, AgentLog, TripPlan
+from shared.models import User, Trip, TripRequest, AgentLog, TripPlan, Booking
 from research_agent.agent import run_research
 from budget_agent.agent import run_budget_analysis
 from booking_agent.agent import run_booking_search
@@ -480,10 +480,37 @@ async def orchestrate_complete_plan(
             trip_id=trip.id,
             itinerary=orchestrated_plan.itinerary,
             budget_breakdown=orchestrated_plan.budget_breakdown,
-            explanation=str(orchestrated_plan.explanations)
+            explanation=" | ".join([f"{k}: {v}" for k, v in orchestrated_plan.explanations.items()]),
+            recommendations=orchestrated_plan.recommendations
         )
         db.add(trip_plan)
-        
+        db.commit()
+        db.refresh(trip_plan)
+
+        # Persist booking results into the plan booking table
+        for flight in orchestrated_plan.flights:
+            booking = Booking(
+                trip_plan_id=trip_plan.id,
+                type="flight",
+                details=flight,
+                price=flight.get("price", 0.0),
+                booking_reference=None,
+                status="searched"
+            )
+            db.add(booking)
+
+        for hotel in orchestrated_plan.hotels:
+            total_price = hotel.get("total_price") if hotel.get("total_price") is not None else hotel.get("nightly_rate", 0.0)
+            booking = Booking(
+                trip_plan_id=trip_plan.id,
+                type="hotel",
+                details=hotel,
+                price=total_price,
+                booking_reference=None,
+                status="searched"
+            )
+            db.add(booking)
+
         # Log orchestration success
         agent_log = AgentLog(
             trip_id=trip.id,
@@ -566,6 +593,7 @@ def get_trip_details(trip_id: int, db: Session = Depends(get_db)):
                 "itinerary": plan.itinerary,
                 "budget_breakdown": plan.budget_breakdown,
                 "explanation": plan.explanation,
+                "recommendations": plan.recommendations or [],
                 "created_at": plan.created_at.isoformat(),
                 "bookings": [
                     {

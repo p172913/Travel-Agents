@@ -105,7 +105,48 @@ export default function TripDetailPage() {
                     </div>
                     <div className="mt-4">
                       <h3 className="text-sm font-semibold text-slate-900">Itinerary</h3>
-                      <pre className="mt-2 overflow-x-auto rounded-2xl bg-slate-100 p-3 text-sm text-slate-700">{JSON.stringify(plan.itinerary, null, 2)}</pre>
+                      <div className="mt-2 space-y-4">
+                        {plan.itinerary.days && plan.itinerary.days.length > 0 ? (
+                          plan.itinerary.days.map((day: any) => (
+                            <div key={day.day} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                              <p className="text-sm font-semibold text-slate-900">Day {day.day} • {new Date(day.date).toLocaleDateString()}</p>
+                              <div className="mt-3 space-y-3">
+                                {day.items?.map((item: any, index: number) => (
+                                  <div key={index} className="rounded-2xl bg-white p-3 shadow-sm">
+                                    <p className="text-sm font-semibold text-slate-900">{item.time} — {item.title}</p>
+                                    <p className="mt-1 text-sm leading-6 text-slate-700">{item.details}</p>
+                                    {item.reason ? (
+                                      <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">Why: {item.reason}</p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-slate-600">No itinerary details available.</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                      <h3 className="text-sm font-semibold text-slate-900">Recommendations</h3>
+                      {plan.recommendations && plan.recommendations.length > 0 ? (
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                          {plan.recommendations.map((item: any, index: number) => (
+                            <div key={index} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                              <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                              <p className="mt-1 text-sm text-slate-600">{item.type}</p>
+                              <p className="mt-3 text-sm leading-6 text-slate-700">{item.description || item.rationale}</p>
+                              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+                                <span>Rating: {item.rating}</span>
+                                {item.price_level ? <span>Price level: {item.price_level}</span> : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm text-slate-600">No recommendations available for this plan.</p>
+                      )}
                     </div>
                   </div>
                 ))}

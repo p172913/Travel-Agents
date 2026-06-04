@@ -83,6 +83,7 @@ class TripPlan(Base):
     itinerary = Column(JSON, nullable=False)  # Day-by-day structure
     budget_breakdown = Column(JSON, nullable=False)  # Allocated costs for flight, hotel, food, etc.
     explanation = Column(Text, nullable=True)  # AI explanation for recommendations
+    recommendations = Column(JSON, nullable=True, default=list)  # Saved recommendation items
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     trip = relationship("Trip", back_populates="plans")

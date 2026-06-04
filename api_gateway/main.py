@@ -81,19 +81,31 @@ from urllib.parse import urlparse
 
 # Enable CORS for frontend development and production host origins.
 allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+allow_origin_regex = None
 frontend_origin = os.getenv("FRONTEND_URL")
 if frontend_origin:
-    parsed_origin = urlparse(frontend_origin)
-    if parsed_origin.scheme and parsed_origin.netloc:
-        allowed_origins.append(f"{parsed_origin.scheme}://{parsed_origin.netloc}")
-    else:
-        allowed_origins.append(frontend_origin.rstrip("/"))
+    for origin_text in frontend_origin.split(","):
+        origin = origin_text.strip()
+        if not origin:
+            continue
+        parsed_origin = urlparse(origin)
+        if parsed_origin.scheme and parsed_origin.netloc:
+            allowed_origins.append(f"{parsed_origin.scheme}://{parsed_origin.netloc}")
+        else:
+            allowed_origins.append(origin.rstrip("/"))
+else:
+    if settings.app_env.lower() == "production":
+        allow_origin_regex = r"https?://.*"
+        logger.warning("FRONTEND_URL not configured in production; CORS will allow HTTPS origins by regex.")
 
 logger.info("Allowing CORS origins: %s", allowed_origins)
+if allow_origin_regex:
+    logger.info("Allowing CORS origin regex: %s", allow_origin_regex)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

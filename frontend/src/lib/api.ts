@@ -1,13 +1,15 @@
 const rawApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
-export const API_BASE = rawApiUrl || "http://localhost:8000";
-export const API_URL_SOURCE = rawApiUrl ? "env" : "fallback";
+const runtimeFallback = typeof window !== "undefined" ? window.location.origin : "http://localhost:8000";
+export const API_BASE = rawApiUrl || runtimeFallback;
+export const API_URL_SOURCE = rawApiUrl ? "env" : "runtime-fallback";
 
 function apiErrorMessage(url: string, response: Response, body: string) {
   return `API request failed: ${response.status} ${response.statusText} when fetching ${url}. Response body: ${body}`;
 }
 
 function missingApiUrlError(url: string) {
-  return `Missing NEXT_PUBLIC_API_URL in Vercel environment. Tried to fetch ${url} using fallback http://localhost:8000.`;
+  const fallback = typeof window !== "undefined" ? window.location.origin : "http://localhost:8000";
+  return `Missing NEXT_PUBLIC_API_URL. Tried to fetch ${url} using fallback ${fallback}. Set NEXT_PUBLIC_API_URL to the Render backend URL in Vercel env settings.`;
 }
 
 export type TripSummary = {

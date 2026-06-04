@@ -15,7 +15,12 @@ export default function TripsPage() {
         const results = await getTrips();
         setTrips(results);
       } catch (err) {
-        setError("Unable to load trips. Check the API connection.");
+        console.error("Trips load error:", err);
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError("Unable to load trips. Check the API connection.");
+        }
       } finally {
         setLoading(false);
       }

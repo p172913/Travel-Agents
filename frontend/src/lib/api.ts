@@ -1,4 +1,14 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+export const API_BASE = rawApiUrl || "http://localhost:8000";
+export const API_URL_SOURCE = rawApiUrl ? "env" : "fallback";
+
+function apiErrorMessage(url: string, response: Response, body: string) {
+  return `API request failed: ${response.status} ${response.statusText} when fetching ${url}. Response body: ${body}`;
+}
+
+function missingApiUrlError(url: string) {
+  return `Missing NEXT_PUBLIC_API_URL in Vercel environment. Tried to fetch ${url} using fallback http://localhost:8000.`;
+}
 
 export type TripSummary = {
   trip_id: number;
@@ -33,22 +43,31 @@ export type TripDetails = {
   requests: Array<Record<string, any>>;
 };
 
-export async function getTrips(): Promise<TripSummary[]> {
-  const response = await fetch(`${API_BASE}/api/trips`, {
+async function fetchJson<T>(url: string): Promise<T> {
+  if (!rawApiUrl) {
+    throw new Error(missingApiUrlError(url));
+  }
+
+  const response = await fetch(url, {
     cache: "no-store",
   });
+
+  const body = await response.text();
   if (!response.ok) {
-    throw new Error("Failed to load trips");
+    throw new Error(apiErrorMessage(url, response, body));
   }
-  return response.json();
+
+  try {
+    return JSON.parse(body) as T;
+  } catch (e) {
+    throw new Error(`Invalid JSON response from ${url}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+export async function getTrips(): Promise<TripSummary[]> {
+  return fetchJson<TripSummary[]>(`${API_BASE}/api/trips`);
 }
 
 export async function getTripDetails(tripId: number): Promise<TripDetails> {
-  const response = await fetch(`${API_BASE}/api/trips/${tripId}`, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error("Failed to load trip details");
-  }
-  return response.json();
+  return fetchJson<TripDetails>(`${API_BASE}/api/trips/${tripId}`);
 }

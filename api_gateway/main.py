@@ -584,34 +584,101 @@ async def orchestrate_complete_plan(
 @app.get("/api/trips")
 def list_trips(db: Session = Depends(get_db)):
     """Return a list of trips with summary metadata."""
+    # Step 1: DB access
     try:
         trips = db.query(Trip).order_by(Trip.created_at.desc()).all()
-        return [
-            {
-                "trip_id": trip.id,
-                "title": trip.title,
-                "destination": trip.destination,
-                "start_date": trip.start_date.isoformat() if trip.start_date else None,
-                "end_date": trip.end_date.isoformat() if trip.end_date else None,
-                "budget_limit": trip.budget_limit,
-                "status": trip.status,
-                "plan_count": len(trip.plans),
-                "created_at": trip.created_at.isoformat() if trip.created_at else None
-            }
-            for trip in trips
-        ]
     except Exception as e:
-        logger.exception("Failed to list trips")
+        logger.exception("DB query failed when listing trips")
+        if settings.app_env and settings.app_env.lower() != "production":
+            full = str(e)
+            tail = full[-400:] if len(full) > 400 else full
+            raise HTTPException(status_code=500, detail=f"DB query failed when listing trips. Exception: {tail}")
         raise HTTPException(status_code=500, detail="Unable to list trips due to server error.")
+
+    # Step 2: Serialization — handle attribute errors separately
+    results = []
+    for trip in trips:
+        try:
+            results.append(
+                {
+                    "trip_id": trip.id,
+                    "title": trip.title,
+                    "destination": trip.destination,
+                    "start_date": trip.start_date.isoformat() if trip.start_date else None,
+                    "end_date": trip.end_date.isoformat() if trip.end_date else None,
+                    "budget_limit": trip.budget_limit,
+                    "status": trip.status,
+                    "plan_count": len(trip.plans),
+                    "created_at": trip.created_at.isoformat() if trip.created_at else None
+                }
+            )
+        except Exception as e:
+            logger.exception("Failed to serialize trip record id=%s", getattr(trip, "id", None))
+            if settings.app_env and settings.app_env.lower() != "production":
+                full = str(e)
+                tail = full[-400:] if len(full) > 400 else full
+                raise HTTPException(status_code=500, detail=f"Trip serialization failed for trip_id={getattr(trip, 'id', None)}. Exception: {tail}")
+            raise HTTPException(status_code=500, detail="Unable to list trips due to server error.")
+
+    return results
 
 
 @app.get("/api/trips/{trip_id}")
 def get_trip_details(trip_id: int, db: Session = Depends(get_db)):
     """Return trip details including saved trip plans and booking context."""
+    # Step 1: DB fetch
     try:
         trip = db.query(Trip).filter_by(id=trip_id).first()
-        if not trip:
-            raise HTTPException(status_code=404, detail=f"Trip with ID {trip_id} not found")
+    except Exception as e:
+        logger.exception("DB query failed when fetching trip_id=%s", trip_id)
+        if settings.app_env and settings.app_env.lower() != "production":
+            full = str(e)
+            tail = full[-400:] if len(full) > 400 else full
+            raise HTTPException(status_code=500, detail=f"DB query failed when fetching trip details. Exception: {tail}")
+        raise HTTPException(status_code=500, detail="Unable to fetch trip details due to server error.")
+
+    if not trip:
+        raise HTTPException(status_code=404, detail=f"Trip with ID {trip_id} not found")
+
+    # Step 2: Serialization
+    try:
+        plans_serialized = []
+        for plan in trip.plans:
+            bookings_serialized = []
+            for booking in plan.bookings:
+                bookings_serialized.append(
+                    {
+                        "booking_id": booking.id,
+                        "type": booking.type,
+                        "details": booking.details,
+                        "price": booking.price,
+                        "booking_reference": booking.booking_reference,
+                        "status": booking.status,
+                        "created_at": booking.created_at.isoformat() if booking.created_at else None
+                    }
+                )
+
+            plans_serialized.append(
+                {
+                    "plan_id": plan.id,
+                    "itinerary": plan.itinerary,
+                    "budget_breakdown": plan.budget_breakdown,
+                    "explanation": plan.explanation,
+                    "recommendations": plan.recommendations or [],
+                    "created_at": plan.created_at.isoformat() if plan.created_at else None,
+                    "bookings": bookings_serialized
+                }
+            )
+
+        requests_serialized = [
+            {
+                "request_id": request.id,
+                "prompt": request.prompt,
+                "status": request.status,
+                "created_at": request.created_at.isoformat() if request.created_at else None
+            }
+            for request in trip.requests
+        ]
 
         return {
             "trip_id": trip.id,
@@ -621,43 +688,25 @@ def get_trip_details(trip_id: int, db: Session = Depends(get_db)):
             "end_date": trip.end_date.isoformat() if trip.end_date else None,
             "budget_limit": trip.budget_limit,
             "status": trip.status,
-            "plans": [
-                {
-                    "plan_id": plan.id,
-                    "itinerary": plan.itinerary,
-                    "budget_breakdown": plan.budget_breakdown,
-                    "explanation": plan.explanation,
-                    "recommendations": plan.recommendations or [],
-                    "created_at": plan.created_at.isoformat() if plan.created_at else None,
-                    "bookings": [
-                        {
-                            "booking_id": booking.id,
-                            "type": booking.type,
-                            "details": booking.details,
-                            "price": booking.price,
-                            "booking_reference": booking.booking_reference,
-                            "status": booking.status,
-                            "created_at": booking.created_at.isoformat() if booking.created_at else None
-                        }
-                        for booking in plan.bookings
-                    ]
-                }
-                for plan in trip.plans
-            ],
-            "requests": [
-                {
-                    "request_id": request.id,
-                    "prompt": request.prompt,
-                    "status": request.status,
-                    "created_at": request.created_at.isoformat() if request.created_at else None
-                }
-                for request in trip.requests
-            ]
+            "plans": plans_serialized,
+            "requests": requests_serialized
         }
+    except Exception as e:
+        logger.exception("Failed to serialize trip details for trip_id=%s", trip_id)
+        if settings.app_env and settings.app_env.lower() != "production":
+            full = str(e)
+            tail = full[-400:] if len(full) > 400 else full
+            raise HTTPException(status_code=500, detail=f"Trip serialization failed for trip_id={trip_id}. Exception: {tail}")
+        raise HTTPException(status_code=500, detail="Unable to fetch trip details due to server error.")
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Failed to fetch trip details for trip_id=%s", trip_id)
+        # Surface short exception tail in non-production for faster debugging
+        if settings.app_env and settings.app_env.lower() != "production":
+            full = str(e)
+            tail = full[-400:] if len(full) > 400 else full
+            raise HTTPException(status_code=500, detail=f"Unable to fetch trip details due to server error. Exception: {tail}")
         raise HTTPException(status_code=500, detail="Unable to fetch trip details due to server error.")
 
 

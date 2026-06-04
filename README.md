@@ -30,13 +30,16 @@ The project now includes production-ready hosting infrastructure without requiri
 
 - `infra/docker-compose.prod.yml`: production-style Docker Compose stack
 - `frontend/Dockerfile`: production build for the frontend
+- `frontend/vercel.json`: Vercel frontend deployment config
+- `frontend/.env.local.example`: frontend environment template
 - `.github/workflows/deploy.yml`: AWS ECS deployment workflow
 - `infra/aws/ecs-task-definition.json`: ECS task definition template
+- `render.yaml`: Render deployment blueprint for the backend
 - `.env.example`: environment variable template
 - `HOSTING.md`: hosting instructions
 
 ## Hosting
 
-If you want to host the project now, you can run a local production stack with Docker Compose or deploy to AWS ECS using the provided workflow and task definition.
+You can deploy the frontend to Vercel from the `frontend/` directory, and host the backend on Render using `Dockerfile` or `render.yaml`.
 
 See `HOSTING.md` for step-by-step deployment information.

@@ -53,10 +53,20 @@ This is the recommended backend host if you want a simple service deployment for
 A `render.yaml` file is included at the repository root for Render service configuration.
 You can use it as a deployment blueprint or import it in Render.
 
-### Connect frontend
+### Vercel frontend setup
 
-On Vercel, set `NEXT_PUBLIC_API_URL` to the Render backend URL.
-If you are using the frontend from `frontend/` on Vercel, do not forget to set this environment variable in your Vercel project.
+1. Create a new Vercel project and set the root directory to `frontend`.
+2. Use `vercel.json` in the `frontend/` directory as the Vercel config file.
+3. Set the Vercel environment variable:
+   - `NEXT_PUBLIC_API_URL` = `https://<your-backend-domain>`
+4. Optionally set local frontend variables in `frontend/.env.local` for local development:
+   - `NEXT_PUBLIC_API_URL=https://<your-backend-domain>`
+
+### Connect backend and frontend
+
+- Deploy the backend on Render first.
+- Use the backend URL from Render as the Vercel `NEXT_PUBLIC_API_URL`.
+- The frontend will call the Render-hosted backend directly.
 
 ---
 

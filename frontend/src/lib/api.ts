@@ -43,13 +43,29 @@ export type TripDetails = {
   requests: Array<Record<string, any>>;
 };
 
-async function fetchJson<T>(url: string): Promise<T> {
+export type OrchestratorTripRequest = {
+  destination: string;
+  start_date: string;
+  end_date: string;
+  total_budget: number;
+  travel_style: string;
+  travelers: number;
+};
+
+export type OrchestrationResponse = {
+  trip_id: number;
+  plan_id: number;
+  plan: Record<string, any>;
+};
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   if (!rawApiUrl) {
     throw new Error(missingApiUrlError(url));
   }
 
   const response = await fetch(url, {
     cache: "no-store",
+    ...options,
   });
 
   const body = await response.text();
@@ -70,4 +86,14 @@ export async function getTrips(): Promise<TripSummary[]> {
 
 export async function getTripDetails(tripId: number): Promise<TripDetails> {
   return fetchJson<TripDetails>(`${API_BASE}/api/trips/${tripId}`);
+}
+
+export async function orchestrateTrip(request: OrchestratorTripRequest): Promise<OrchestrationResponse> {
+  return fetchJson<OrchestrationResponse>(`${API_BASE}/api/plan/orchestrate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
 }

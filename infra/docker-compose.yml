@@ -41,6 +41,26 @@ services:
     networks:
       - travelsouls_net
 
+  api_gateway:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: travelsouls_api
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/travelsouls
+      REDIS_URL: redis://redis:6379
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      - db
+      - redis
+    networks:
+      - travelsouls_net
+    volumes:
+      - ../:/app
+
 volumes:
   pgdata:
   redisdata:

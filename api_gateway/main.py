@@ -13,12 +13,39 @@ from shared.db import init_db, get_db
 from shared.models import User, Trip, TripRequest, AgentLog, TripPlan
 from research_agent.agent import run_research
 from budget_agent.agent import run_budget_analysis
+from booking_agent.agent import run_booking_search
+from recommendation_agent.agent import run_recommendation_engine
+from orchestrator.agent import orchestrate_trip_plan
+from orchestrator.schemas import OrchestratorInput
 from pydantic import BaseModel
 
 class BudgetRequest(BaseModel):
     trip_id: int
     total_budget: float
     travel_style: str = "mid-range"
+
+
+class BookingRequest(BaseModel):
+    trip_id: int
+    start_date: str
+    end_date: str
+    travelers: int = 1
+
+
+class RecommendationRequest(BaseModel):
+    trip_id: int
+    travel_style: str = "balanced"
+    budget_tier: str = "mid-range"
+    interests: list = None
+
+
+class OrchestratorTripRequest(BaseModel):
+    destination: str
+    start_date: str
+    end_date: str
+    total_budget: float
+    travel_style: str = "balanced"
+    travelers: int = 1
 
 app = FastAPI(
     title="TravelSouls API Gateway",
@@ -242,3 +269,232 @@ async def analyze_budget(
             status_code=500,
             detail=f"Budget agent execution failed: {str(e)}"
         )
+
+
+@app.post("/api/booking")
+async def search_booking(
+    request: BookingRequest,
+    db: Session = Depends(get_db)
+):
+    """Search for flights and hotels for a trip. Prototype uses mocked booking agent."""
+    trip = db.query(Trip).filter_by(id=request.trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail=f"Trip with ID {request.trip_id} not found")
+
+    try:
+        booking_result = await run_booking_search(
+            destination=trip.destination,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            travelers=request.travelers
+        )
+
+        # Log agent output
+        agent_log = AgentLog(
+            trip_id=trip.id,
+            agent_name="booking-agent",
+            action="search-bookings",
+            message=f"Performed booking search for trip {trip.id}",
+            input_data={
+                "trip_id": request.trip_id,
+                "start_date": request.start_date,
+                "end_date": request.end_date,
+                "travelers": request.travelers
+            },
+            output_data=booking_result.dict()
+        )
+        db.add(agent_log)
+        db.commit()
+
+        return {
+            "trip_id": trip.id,
+            "booking": booking_result
+        }
+
+    except Exception as e:
+        agent_log = AgentLog(
+            trip_id=trip.id,
+            agent_name="booking-agent",
+            action="search-bookings",
+            message=f"Booking search failed: {str(e)}",
+            input_data={
+                "trip_id": request.trip_id,
+                "start_date": request.start_date,
+                "end_date": request.end_date,
+                "travelers": request.travelers
+            },
+            output_data=None
+        )
+        db.add(agent_log)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Booking agent execution failed: {str(e)}")
+
+
+@app.post("/api/recommendation")
+async def get_recommendations(
+    request: RecommendationRequest,
+    db: Session = Depends(get_db)
+):
+    """Get personalized recommendations for a trip."""
+    trip = db.query(Trip).filter_by(id=request.trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail=f"Trip with ID {request.trip_id} not found")
+
+    try:
+        recommendation_result = await run_recommendation_engine(
+            destination=trip.destination,
+            travel_style=request.travel_style,
+            budget_tier=request.budget_tier,
+            interests=request.interests
+        )
+
+        # Log agent output
+        agent_log = AgentLog(
+            trip_id=trip.id,
+            agent_name="recommendation-agent",
+            action="generate-recommendations",
+            message=f"Generated {len(recommendation_result.recommendations)} personalized recommendations",
+            input_data={
+                "trip_id": request.trip_id,
+                "travel_style": request.travel_style,
+                "budget_tier": request.budget_tier,
+                "interests": request.interests
+            },
+            output_data=recommendation_result.dict()
+        )
+        db.add(agent_log)
+        db.commit()
+
+        return {
+            "trip_id": trip.id,
+            "recommendations": recommendation_result
+        }
+
+    except Exception as e:
+        agent_log = AgentLog(
+            trip_id=trip.id,
+            agent_name="recommendation-agent",
+            action="generate-recommendations",
+            message=f"Recommendation generation failed: {str(e)}",
+            input_data={
+                "trip_id": request.trip_id,
+                "travel_style": request.travel_style,
+                "budget_tier": request.budget_tier,
+                "interests": request.interests
+            },
+            output_data=None
+        )
+        db.add(agent_log)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Recommendation agent execution failed: {str(e)}")
+
+
+@app.post("/api/plan/orchestrate")
+async def orchestrate_complete_plan(
+    request: OrchestratorTripRequest,
+    db: Session = Depends(get_db)
+):
+    """Generate a complete trip plan by orchestrating all agents (research, budget, booking, recommendation).
+    
+    This endpoint is the primary entry point for trip planning. It coordinates all agents to produce
+    a complete, multi-faceted travel plan with budget, flights, hotels, activities, and explanations.
+    """
+    user = create_default_user_if_not_exists(db)
+    
+    # Create trip record
+    trip = Trip(
+        user_id=user.id,
+        title=f"Trip to {request.destination}",
+        destination=request.destination,
+        start_date=parse_date(request.start_date),
+        end_date=parse_date(request.end_date),
+        budget_limit=request.total_budget,
+        status="planning"
+    )
+    db.add(trip)
+    db.commit()
+    db.refresh(trip)
+    
+    try:
+        # Log orchestration request
+        trip_request = TripRequest(
+            trip_id=trip.id,
+            prompt=f"Plan a {request.travel_style} trip to {request.destination}",
+            status="processing"
+        )
+        db.add(trip_request)
+        db.commit()
+        
+        # Run orchestrator
+        orchestrator_input = OrchestratorInput(
+            trip_id=trip.id,
+            destination=request.destination,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            total_budget=request.total_budget,
+            travel_style=request.travel_style,
+            travelers=request.travelers
+        )
+        
+        orchestrated_plan = await orchestrate_trip_plan(orchestrator_input)
+        
+        # Store the complete plan
+        trip_plan = TripPlan(
+            trip_id=trip.id,
+            itinerary=orchestrated_plan.itinerary,
+            budget_breakdown=orchestrated_plan.budget_breakdown,
+            explanation=str(orchestrated_plan.explanations)
+        )
+        db.add(trip_plan)
+        
+        # Log orchestration success
+        agent_log = AgentLog(
+            trip_id=trip.id,
+            agent_name="orchestrator",
+            action="complete-orchestration",
+            message=f"Successfully orchestrated complete trip plan in {orchestrated_plan.execution_time_ms:.0f}ms",
+            input_data=orchestrator_input.dict(),
+            output_data=orchestrated_plan.dict()
+        )
+        db.add(agent_log)
+        
+        trip_request.status = "completed"
+        db.commit()
+        db.refresh(trip_plan)
+        
+        return {
+            "trip_id": trip.id,
+            "plan_id": trip_plan.id,
+            "plan": orchestrated_plan
+        }
+        
+    except Exception as e:
+        # Log failure
+        agent_log = AgentLog(
+            trip_id=trip.id,
+            agent_name="orchestrator",
+            action="complete-orchestration",
+            message=f"Orchestration failed: {str(e)}",
+            input_data=orchestrator_input.dict() if 'orchestrator_input' in locals() else {},
+            output_data=None
+        )
+        db.add(agent_log)
+        trip_request.status = "failed"
+        db.commit()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Trip orchestration failed: {str(e)}"
+        )
+
+
+def parse_date(date_str: str):
+    """Parse YYYY-MM-DD string into date object."""
+    from datetime import datetime
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except:
+        import datetime as dt
+        return dt.date.today()
+
+

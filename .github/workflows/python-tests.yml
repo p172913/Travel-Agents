@@ -1,0 +1,87 @@
+name: Python Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ['3.13']
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio pytest-cov
+        # Install all requirements from workspace
+        if [ -f api_gateway/requirements.txt ]; then pip install -r api_gateway/requirements.txt; fi
+    
+    - name: Run Research Agent tests
+      run: |
+        pytest research_agent/test_agent.py -v --tb=short
+      continue-on-error: true
+    
+    - name: Run Budget Agent tests
+      run: |
+        pytest budget_agent/test_agent.py -v --tb=short
+      continue-on-error: true
+    
+    - name: Run Booking Agent tests
+      run: |
+        pytest booking_agent/test_agent.py -v --tb=short
+      continue-on-error: true
+    
+    - name: Run all tests with coverage
+      run: |
+        pytest --cov=research_agent --cov=budget_agent --cov=booking_agent \
+               --cov-report=xml --cov-report=term-summary \
+               research_agent/ budget_agent/ booking_agent/ -v || true
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+    
+    - name: Install lint tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+    
+    - name: Check code formatting with black
+      run: |
+        black --check research_agent budget_agent booking_agent api_gateway shared || true
+    
+    - name: Check import sorting with isort
+      run: |
+        isort --check-only research_agent budget_agent booking_agent api_gateway shared || true
+    
+    - name: Lint with flake8
+      run: |
+        flake8 research_agent budget_agent booking_agent api_gateway shared --max-line-length=100 || true

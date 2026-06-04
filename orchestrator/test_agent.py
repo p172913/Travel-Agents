@@ -15,9 +15,7 @@ def test_orchestrate_trip_plan_returns_merged_plan():
         travelers=1
     )
     
-    result = asyncio.get_event_loop().run_until_complete(
-        orchestrate_trip_plan(input_data)
-    )
+    result = asyncio.run(orchestrate_trip_plan(input_data))
     
     assert result.trip_id == 1
     assert result.destination == "Goa"
@@ -27,3 +25,11 @@ def test_orchestrate_trip_plan_returns_merged_plan():
     assert len(result.hotels) >= 1
     assert len(result.recommendations) >= 1
     assert result.execution_time_ms > 0
+    # Ensure explainability metadata is present on itinerary items
+    assert len(result.itinerary["days"]) >= 1
+    for day in result.itinerary["days"]:
+        assert "items" in day
+        for item in day["items"]:
+            assert "reason" in item
+            assert isinstance(item["reason"], str)
+            assert item["reason"].strip() != ""

@@ -188,7 +188,7 @@ async def get_research(
             action="destination-research",
             message=f"Successfully researched {destination} for month {month}",
             input_data={"destination": destination, "month": month},
-            output_data=research_result.dict()
+            output_data=research_result.model_dump()
         )
         db.add(agent_log)
         
@@ -254,12 +254,12 @@ async def analyze_budget(
             plan = TripPlan(
                 trip_id=trip.id,
                 itinerary={"days": []},
-                budget_breakdown=budget_result.allocation.dict(),
+                budget_breakdown=budget_result.allocation.model_dump(),
                 explanation=budget_result.cost_prediction_summary
             )
             db.add(plan)
         else:
-            plan.budget_breakdown = budget_result.allocation.dict()
+            plan.budget_breakdown = budget_result.allocation.model_dump()
             plan.explanation = budget_result.cost_prediction_summary
         
         # Log successful agent execution
@@ -273,7 +273,7 @@ async def analyze_budget(
                 "total_budget": request.total_budget,
                 "travel_style": request.travel_style
             },
-            output_data=budget_result.dict()
+            output_data=budget_result.model_dump()
         )
         db.add(agent_log)
         db.commit()
@@ -338,7 +338,7 @@ async def search_booking(
                 "end_date": request.end_date,
                 "travelers": request.travelers
             },
-            output_data=booking_result.dict()
+            output_data=booking_result.model_dump()
         )
         db.add(agent_log)
         db.commit()
@@ -397,7 +397,7 @@ async def get_recommendations(
                 "budget_tier": request.budget_tier,
                 "interests": request.interests
             },
-            output_data=recommendation_result.dict()
+            output_data=recommendation_result.model_dump()
         )
         db.add(agent_log)
         db.commit()
@@ -517,8 +517,8 @@ async def orchestrate_complete_plan(
             agent_name="orchestrator",
             action="complete-orchestration",
             message=f"Successfully orchestrated complete trip plan in {orchestrated_plan.execution_time_ms:.0f}ms",
-            input_data=orchestrator_input.dict(),
-            output_data=orchestrated_plan.dict()
+            input_data=orchestrator_input.model_dump(),
+            output_data=orchestrated_plan.model_dump()
         )
         db.add(agent_log)
         

@@ -77,11 +77,19 @@ if settings.sentry_dsn:
     except ImportError:
         logger.warning("sentry-sdk is not installed. Skipping Sentry initialization.")
 
+from urllib.parse import urlparse
+
 # Enable CORS for frontend development and production host origins.
 allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
 frontend_origin = os.getenv("FRONTEND_URL")
 if frontend_origin:
-    allowed_origins.append(frontend_origin)
+    parsed_origin = urlparse(frontend_origin)
+    if parsed_origin.scheme and parsed_origin.netloc:
+        allowed_origins.append(f"{parsed_origin.scheme}://{parsed_origin.netloc}")
+    else:
+        allowed_origins.append(frontend_origin.rstrip("/"))
+
+logger.info("Allowing CORS origins: %s", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,

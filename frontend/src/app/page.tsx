@@ -23,12 +23,12 @@ export default function Home() {
             >
               View Saved Trips
             </Link>
-            <a
-              href="/trips"
+            <Link
+              href="/start"
               className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-center text-base font-semibold text-slate-900 transition hover:bg-slate-50"
             >
               Start Planning
-            </a>
+            </Link>
           </div>
         </div>
       </main>

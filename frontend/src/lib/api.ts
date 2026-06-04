@@ -1,15 +1,18 @@
 const rawApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
-const runtimeFallback = typeof window !== "undefined" ? window.location.origin : "http://localhost:8000";
-export const API_BASE = rawApiUrl || runtimeFallback;
-export const API_URL_SOURCE = rawApiUrl ? "env" : "runtime-fallback";
+const isBrowser = typeof window !== "undefined";
+const isLocalhost = isBrowser && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const API_BASE = rawApiUrl || (isLocalhost ? "http://localhost:8000" : undefined);
+export const API_URL_SOURCE = rawApiUrl ? "env" : isLocalhost ? "localhost-fallback" : "missing-env";
 
 function apiErrorMessage(url: string, response: Response, body: string) {
   return `API request failed: ${response.status} ${response.statusText} when fetching ${url}. Response body: ${body}`;
 }
 
 function missingApiUrlError(url: string) {
-  const fallback = typeof window !== "undefined" ? window.location.origin : "http://localhost:8000";
-  return `Missing NEXT_PUBLIC_API_URL. Tried to fetch ${url} using fallback ${fallback}. Set NEXT_PUBLIC_API_URL to the Render backend URL in Vercel env settings.`;
+  if (isLocalhost) {
+    return `Missing NEXT_PUBLIC_API_URL. Using local development fallback for ${url}. Set NEXT_PUBLIC_API_URL to your backend URL for production.`;
+  }
+  return `Missing NEXT_PUBLIC_API_URL in production. The app cannot reach the backend. Set NEXT_PUBLIC_API_URL in Vercel to your Render backend URL (for example https://travel-agents-i4p2.onrender.com).`;
 }
 
 export type TripSummary = {
@@ -62,7 +65,7 @@ export type OrchestrationResponse = {
 };
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  if (!rawApiUrl) {
+  if (!API_BASE) {
     throw new Error(missingApiUrlError(url));
   }
 

@@ -2,22 +2,22 @@ import Link from "next/link";
 
 const phases = [
   {
-    title: "Phase 5: Recommendations",
+    title: "Recommendations",
     description: "Generate tailored restaurant, activity, and attraction suggestions for your trip.",
     highlight: "Personalized AI suggestions"
   },
   {
-    title: "Phase 6: Orchestration",
+    title: "Orchestration",
     description: "Coordinate research, budget, booking, and recommendations into one complete plan.",
     highlight: "Multi-agent planning"
   },
   {
-    title: "Phase 7: Itinerary",
+    title: "Itinerary",
     description: "Convert agent outputs into a readable day-by-day travel schedule.",
     highlight: "Daily itinerary builder"
   },
   {
-    title: "Phase 8: Explainability",
+    title: "Explainability",
     description: "Show why each recommendation was chosen so travelers understand the plan.",
     highlight: "Why this plan works"
   }

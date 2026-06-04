@@ -69,20 +69,25 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(missingApiUrlError(url));
   }
 
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...options,
-  });
-
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(apiErrorMessage(url, response, body));
-  }
-
   try {
-    return JSON.parse(body) as T;
-  } catch (e) {
-    throw new Error(`Invalid JSON response from ${url}: ${e instanceof Error ? e.message : String(e)}`);
+    const response = await fetch(url, {
+      cache: "no-store",
+      ...options,
+    });
+
+    const body = await response.text();
+    if (!response.ok) {
+      throw new Error(apiErrorMessage(url, response, body));
+    }
+
+    try {
+      return JSON.parse(body) as T;
+    } catch (e) {
+      throw new Error(`Invalid JSON response from ${url}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Network request failed for ${url} using API_BASE=${API_BASE} source=${API_URL_SOURCE}: ${errorMessage}`);
   }
 }
 

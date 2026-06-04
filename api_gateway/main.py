@@ -3,7 +3,8 @@ import os
 import datetime
 import logging
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -76,6 +77,22 @@ if settings.sentry_dsn:
         logger.info("Sentry initialized")
     except ImportError:
         logger.warning("sentry-sdk is not installed. Skipping Sentry initialization.")
+
+
+# Global exception handler to surface concise error details in non-production environments.
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception: %s", exc)
+    # Only include error details when not in production to avoid leaking sensitive info.
+    try:
+        if settings.app_env and settings.app_env.lower() != "production":
+            full = str(exc)
+            tail = full[-200:] if len(full) > 200 else full
+            return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": tail})
+    except Exception:
+        # Fall through to generic response if anything goes wrong while constructing debug payload
+        pass
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 from urllib.parse import urlparse
 
@@ -567,71 +584,81 @@ async def orchestrate_complete_plan(
 @app.get("/api/trips")
 def list_trips(db: Session = Depends(get_db)):
     """Return a list of trips with summary metadata."""
-    trips = db.query(Trip).order_by(Trip.created_at.desc()).all()
-    return [
-        {
-            "trip_id": trip.id,
-            "title": trip.title,
-            "destination": trip.destination,
-            "start_date": trip.start_date.isoformat(),
-            "end_date": trip.end_date.isoformat(),
-            "budget_limit": trip.budget_limit,
-            "status": trip.status,
-            "plan_count": len(trip.plans),
-            "created_at": trip.created_at.isoformat()
-        }
-        for trip in trips
-    ]
+    try:
+        trips = db.query(Trip).order_by(Trip.created_at.desc()).all()
+        return [
+            {
+                "trip_id": trip.id,
+                "title": trip.title,
+                "destination": trip.destination,
+                "start_date": trip.start_date.isoformat() if trip.start_date else None,
+                "end_date": trip.end_date.isoformat() if trip.end_date else None,
+                "budget_limit": trip.budget_limit,
+                "status": trip.status,
+                "plan_count": len(trip.plans),
+                "created_at": trip.created_at.isoformat() if trip.created_at else None
+            }
+            for trip in trips
+        ]
+    except Exception as e:
+        logger.exception("Failed to list trips")
+        raise HTTPException(status_code=500, detail="Unable to list trips due to server error.")
 
 
 @app.get("/api/trips/{trip_id}")
 def get_trip_details(trip_id: int, db: Session = Depends(get_db)):
     """Return trip details including saved trip plans and booking context."""
-    trip = db.query(Trip).filter_by(id=trip_id).first()
-    if not trip:
-        raise HTTPException(status_code=404, detail=f"Trip with ID {trip_id} not found")
+    try:
+        trip = db.query(Trip).filter_by(id=trip_id).first()
+        if not trip:
+            raise HTTPException(status_code=404, detail=f"Trip with ID {trip_id} not found")
 
-    return {
-        "trip_id": trip.id,
-        "title": trip.title,
-        "destination": trip.destination,
-        "start_date": trip.start_date.isoformat(),
-        "end_date": trip.end_date.isoformat(),
-        "budget_limit": trip.budget_limit,
-        "status": trip.status,
-        "plans": [
-            {
-                "plan_id": plan.id,
-                "itinerary": plan.itinerary,
-                "budget_breakdown": plan.budget_breakdown,
-                "explanation": plan.explanation,
-                "recommendations": plan.recommendations or [],
-                "created_at": plan.created_at.isoformat(),
-                "bookings": [
-                    {
-                        "booking_id": booking.id,
-                        "type": booking.type,
-                        "details": booking.details,
-                        "price": booking.price,
-                        "booking_reference": booking.booking_reference,
-                        "status": booking.status,
-                        "created_at": booking.created_at.isoformat()
-                    }
-                    for booking in plan.bookings
-                ]
-            }
-            for plan in trip.plans
-        ],
-        "requests": [
-            {
-                "request_id": request.id,
-                "prompt": request.prompt,
-                "status": request.status,
-                "created_at": request.created_at.isoformat()
-            }
-            for request in trip.requests
-        ]
-    }
+        return {
+            "trip_id": trip.id,
+            "title": trip.title,
+            "destination": trip.destination,
+            "start_date": trip.start_date.isoformat() if trip.start_date else None,
+            "end_date": trip.end_date.isoformat() if trip.end_date else None,
+            "budget_limit": trip.budget_limit,
+            "status": trip.status,
+            "plans": [
+                {
+                    "plan_id": plan.id,
+                    "itinerary": plan.itinerary,
+                    "budget_breakdown": plan.budget_breakdown,
+                    "explanation": plan.explanation,
+                    "recommendations": plan.recommendations or [],
+                    "created_at": plan.created_at.isoformat() if plan.created_at else None,
+                    "bookings": [
+                        {
+                            "booking_id": booking.id,
+                            "type": booking.type,
+                            "details": booking.details,
+                            "price": booking.price,
+                            "booking_reference": booking.booking_reference,
+                            "status": booking.status,
+                            "created_at": booking.created_at.isoformat() if booking.created_at else None
+                        }
+                        for booking in plan.bookings
+                    ]
+                }
+                for plan in trip.plans
+            ],
+            "requests": [
+                {
+                    "request_id": request.id,
+                    "prompt": request.prompt,
+                    "status": request.status,
+                    "created_at": request.created_at.isoformat() if request.created_at else None
+                }
+                for request in trip.requests
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to fetch trip details for trip_id=%s", trip_id)
+        raise HTTPException(status_code=500, detail="Unable to fetch trip details due to server error.")
 
 
 def parse_date(date_str: str):

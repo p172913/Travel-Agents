@@ -16,4 +16,27 @@ An AI-powered multi-agent travel planning platform.
 
 ## Getting Started
 
-More instructions on running the individual services will be added here as we progress.
+This repository contains a travel planning prototype with a complete API gateway, multi-agent backend services, and a Next.js frontend.
+
+### Local development
+
+- Backend: `api_gateway/main.py`
+- Frontend: `frontend/src/app`
+- Local stack: `infra/docker-compose.yml`
+
+### Production readiness
+
+The project now includes production-ready hosting infrastructure without requiring authentication.
+
+- `infra/docker-compose.prod.yml`: production-style Docker Compose stack
+- `frontend/Dockerfile`: production build for the frontend
+- `.github/workflows/deploy.yml`: AWS ECS deployment workflow
+- `infra/aws/ecs-task-definition.json`: ECS task definition template
+- `.env.example`: environment variable template
+- `HOSTING.md`: hosting instructions
+
+## Hosting
+
+If you want to host the project now, you can run a local production stack with Docker Compose or deploy to AWS ECS using the provided workflow and task definition.
+
+See `HOSTING.md` for step-by-step deployment information.

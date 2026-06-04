@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: travelsouls-api
+    env: docker
+    region: oregon
+    branch: main
+    dockerfilePath: Dockerfile
+    buildCommand: pip install -r api_gateway/requirements.txt
+    startCommand: uvicorn api_gateway.main:app --host 0.0.0.0 --port 8000
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        value: postgres://<username>:<password>@<host>:<port>/<database>
+      - key: REDIS_URL
+        value: redis://<host>:<port>
+      - key: LOG_LEVEL
+        value: INFO
+      - key: FRONTEND_URL
+        value: https://<your-vercel-domain>
+      - key: NEXT_PUBLIC_API_URL
+        value: https://<your-backend-domain>
+
+  - type: redis
+    name: travelsouls-redis
+    plan: starter
+    region: oregon
+
+databases:
+  - name: travelsouls-db
+    plan: starter
+    engine: postgres
+    region: oregon

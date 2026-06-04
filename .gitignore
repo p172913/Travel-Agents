@@ -1,3 +1,10 @@
 .venv/ 
+.venv_test/ 
 travelsouls.db 
 __pycache__/ 
+.env 
+.env.* 
+frontend/node_modules/ 
+frontend/.next/ 
+frontend/out/ 
+*.log

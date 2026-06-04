@@ -40,26 +40,20 @@ jobs:
     - name: Run Research Agent tests
       run: |
         pytest research_agent/test_agent.py -v --tb=short
-      continue-on-error: true
-    
+
     - name: Run Budget Agent tests
       run: |
         pytest budget_agent/test_agent.py -v --tb=short
-      continue-on-error: true
-    
+
     - name: Run Booking Agent tests
       run: |
         pytest booking_agent/test_agent.py -v --tb=short
-      continue-on-error: true
-    
+
     - name: Run all tests with coverage
       run: |
         pytest --cov=research_agent --cov=budget_agent --cov=booking_agent \
                --cov-report=xml --cov-report=term-summary \
-               research_agent/ budget_agent/ booking_agent/ -v || true
-
-  lint:
-    runs-on: ubuntu-latest
+               research_agent/ budget_agent/ booking_agent/ -v
     
     steps:
     - uses: actions/checkout@v3

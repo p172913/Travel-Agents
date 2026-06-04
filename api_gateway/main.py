@@ -1,14 +1,20 @@
 import sys
 import os
 import datetime
+import logging
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+# Load environment variables from .env in local and production dev mode
+load_dotenv()
+
 # Add the workspace root directory to python path to resolve shared modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from api_gateway.config import settings
 from shared.db import init_db, get_db
 from shared.models import User, Trip, TripRequest, AgentLog, TripPlan
 from research_agent.agent import run_research
@@ -53,10 +59,33 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for Next.js frontend development
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("travelsouls")
+logger.info("Starting TravelSouls API Gateway in %s mode", settings.app_env)
+
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
+
+        sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.app_env, traces_sample_rate=0.1)
+        app.add_middleware(SentryAsgiMiddleware)
+        logger.info("Sentry initialized")
+    except ImportError:
+        logger.warning("sentry-sdk is not installed. Skipping Sentry initialization.")
+
+# Enable CORS for frontend development and production host origins.
+allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+frontend_origin = os.getenv("FRONTEND_URL")
+if frontend_origin:
+    allowed_origins.append(frontend_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -486,6 +515,75 @@ async def orchestrate_complete_plan(
             status_code=500,
             detail=f"Trip orchestration failed: {str(e)}"
         )
+
+
+@app.get("/api/trips")
+def list_trips(db: Session = Depends(get_db)):
+    """Return a list of trips with summary metadata."""
+    trips = db.query(Trip).order_by(Trip.created_at.desc()).all()
+    return [
+        {
+            "trip_id": trip.id,
+            "title": trip.title,
+            "destination": trip.destination,
+            "start_date": trip.start_date.isoformat(),
+            "end_date": trip.end_date.isoformat(),
+            "budget_limit": trip.budget_limit,
+            "status": trip.status,
+            "plan_count": len(trip.plans),
+            "created_at": trip.created_at.isoformat()
+        }
+        for trip in trips
+    ]
+
+
+@app.get("/api/trips/{trip_id}")
+def get_trip_details(trip_id: int, db: Session = Depends(get_db)):
+    """Return trip details including saved trip plans and booking context."""
+    trip = db.query(Trip).filter_by(id=trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail=f"Trip with ID {trip_id} not found")
+
+    return {
+        "trip_id": trip.id,
+        "title": trip.title,
+        "destination": trip.destination,
+        "start_date": trip.start_date.isoformat(),
+        "end_date": trip.end_date.isoformat(),
+        "budget_limit": trip.budget_limit,
+        "status": trip.status,
+        "plans": [
+            {
+                "plan_id": plan.id,
+                "itinerary": plan.itinerary,
+                "budget_breakdown": plan.budget_breakdown,
+                "explanation": plan.explanation,
+                "created_at": plan.created_at.isoformat(),
+                "bookings": [
+                    {
+                        "booking_id": booking.id,
+                        "type": booking.type,
+                        "details": booking.details,
+                        "price": booking.price,
+                        "booking_reference": booking.booking_reference,
+                        "status": booking.status,
+                        "created_at": booking.created_at.isoformat()
+                    }
+                    for booking in plan.bookings
+                ]
+            }
+            for plan in trip.plans
+        ],
+        "requests": [
+            {
+                "request_id": request.id,
+                "prompt": request.prompt,
+                "status": request.status,
+                "created_at": request.created_at.isoformat()
+            }
+            for request in trip.requests
+        ]
+    }
 
 
 def parse_date(date_str: str):

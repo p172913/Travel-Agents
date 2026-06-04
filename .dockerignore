@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+.env
+.env.*
+.venv/
+.venv_test/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Git
+.git
+.github
+
+# Docker
+Dockerfile
+infra/docker-compose.yml
+infra/docker-compose.prod.yml

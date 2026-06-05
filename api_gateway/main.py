@@ -17,7 +17,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api_gateway.config import settings
 from shared.db import init_db, get_db
-from shared.models import User, Trip, TripRequest, AgentLog, TripPlan, Booking
+from shared.models import User, Trip, TripRequest, AgentLog, TripPlan, Booking, Preference, Feedback
+from shared.pinecone_store import upsert_feedback, upsert_preference
+from shared.telemetry import setup_telemetry, instrument_fastapi
 from research_agent.agent import run_research
 from budget_agent.agent import run_budget_analysis
 from booking_agent.agent import run_booking_search
@@ -53,6 +55,35 @@ class OrchestratorTripRequest(BaseModel):
     total_budget: float
     travel_style: str = "balanced"
     travelers: int = 1
+
+
+class ChatPlanRequest(BaseModel):
+    prompt: str
+    total_budget: float = 50000.0
+    travelers: int = 2
+    travel_style: str = "balanced"
+
+
+class FeedbackRequest(BaseModel):
+    trip_plan_id: int
+    item_type: str
+    item_id: str
+    rating: int  # 1 = thumbs up, -1 = thumbs down
+    comments: str | None = None
+
+
+class PreferenceRequest(BaseModel):
+    budget_tier: str = "mid-range"
+    dietary_preferences: list = []
+    travel_style: list = []
+    interests: list = []
+
+
+class ReplanRequest(BaseModel):
+    total_budget: float | None = None
+    travel_style: str | None = None
+    travelers: int | None = None
+    reason: str = "User requested replan"
 
 app = FastAPI(
     title="TravelSouls API Gateway",
@@ -143,24 +174,32 @@ def create_default_user_if_not_exists(db: Session):
 
 @app.on_event("startup")
 def on_startup():
-    # Initialize the database and create tables
+    setup_telemetry("travelsouls-api")
+    instrument_fastapi(app)
     init_db()
-    # Seed default user
     db = next(get_db())
     create_default_user_if_not_exists(db)
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
     try:
-        # Quick query validation to verify database connection works
         db.execute(text("SELECT 1"))
         db_status = "healthy"
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
 
+    redis_status = "not_configured"
+    try:
+        from shared.cache import _get_redis
+        client = _get_redis()
+        redis_status = "healthy" if client else "unavailable"
+    except Exception as e:
+        redis_status = f"unavailable: {str(e)}"
+
     return {
         "status": "online",
-        "database": db_status
+        "database": db_status,
+        "redis": redis_status,
     }
 
 @app.get("/api/research")
@@ -407,11 +446,22 @@ async def get_recommendations(
         raise HTTPException(status_code=404, detail=f"Trip with ID {request.trip_id} not found")
 
     try:
+        user = create_default_user_if_not_exists(db)
+        pref = db.query(Preference).filter_by(user_id=user.id).first()
+        pref_data = None
+        if pref:
+            pref_data = {
+                "budget_tier": pref.budget_tier,
+                "travel_style": pref.travel_style or [],
+                "interests": pref.interests or [],
+            }
         recommendation_result = await run_recommendation_engine(
             destination=trip.destination,
             travel_style=request.travel_style,
             budget_tier=request.budget_tier,
-            interests=request.interests
+            interests=request.interests,
+            user_id=user.id,
+            preferences=pref_data,
         )
 
         # Log agent output
@@ -609,6 +659,8 @@ def list_trips(db: Session = Depends(get_db)):
                     "budget_limit": trip.budget_limit,
                     "status": trip.status,
                     "plan_count": len(trip.plans),
+                    "share_token": ensure_share_token(trip, db),
+                    "share_url": f"/t/{ensure_share_token(trip, db)}",
                     "created_at": trip.created_at.isoformat() if trip.created_at else None
                 }
             )
@@ -680,6 +732,7 @@ def get_trip_details(trip_id: int, db: Session = Depends(get_db)):
             for request in trip.requests
         ]
 
+        token = ensure_share_token(trip, db)
         return {
             "trip_id": trip.id,
             "title": trip.title,
@@ -688,6 +741,8 @@ def get_trip_details(trip_id: int, db: Session = Depends(get_db)):
             "end_date": trip.end_date.isoformat() if trip.end_date else None,
             "budget_limit": trip.budget_limit,
             "status": trip.status,
+            "share_token": token,
+            "share_url": f"/t/{token}",
             "plans": plans_serialized,
             "requests": requests_serialized
         }
@@ -718,5 +773,170 @@ def parse_date(date_str: str):
     except:
         import datetime as dt
         return dt.date.today()
+
+
+def ensure_share_token(trip: Trip, db: Session) -> str:
+    if not trip.share_token:
+        import uuid
+        trip.share_token = str(uuid.uuid4())
+        db.commit()
+        db.refresh(trip)
+    return trip.share_token
+
+
+def parse_chat_prompt(prompt: str) -> dict:
+    """Extract destination and dates from natural language travel prompt."""
+    import re
+    from datetime import date, timedelta
+
+    prompt_lower = prompt.lower()
+    destination = "Goa"
+    for dest in ["goa", "tokyo", "paris", "dubai", "bali", "jaipur", "mumbai", "london", "singapore", "japan"]:
+        if dest in prompt_lower:
+            destination = dest.title() if dest != "japan" else "Tokyo"
+            break
+    else:
+        match = re.search(r"(?:to|in|visit)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", prompt)
+        if match:
+            destination = match.group(1)
+
+    style = "balanced"
+    for s in ["luxury", "adventure", "family", "honeymoon", "solo", "budget", "economy"]:
+        if s in prompt_lower:
+            style = "luxury" if s == "honeymoon" else ("adventure" if s == "solo" else s)
+            break
+
+    today = date.today()
+    start = today + timedelta(days=30)
+    end = start + timedelta(days=6)
+    month_match = re.search(r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b", prompt_lower)
+    if month_match:
+        months = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                  "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12}
+        m = months[month_match.group(1)]
+        y = today.year if m > today.month else today.year + 1
+        start = date(y, m, 1)
+        end = start + timedelta(days=6)
+
+    budget_match = re.search(r"₹?\s*([\d,]+)\s*(?:inr|rs|rupees)?", prompt_lower)
+    budget = float(budget_match.group(1).replace(",", "")) if budget_match else 50000.0
+
+    return {
+        "destination": destination,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "total_budget": budget,
+        "travel_style": style,
+    }
+
+
+@app.post("/api/plan/chat")
+async def chat_plan(request: ChatPlanRequest, db: Session = Depends(get_db)):
+    """Generate a trip plan from a natural language chat prompt."""
+    parsed = parse_chat_prompt(request.prompt)
+    orchestrate_req = OrchestratorTripRequest(
+        destination=parsed["destination"],
+        start_date=parsed["start_date"],
+        end_date=parsed["end_date"],
+        total_budget=parsed.get("total_budget", request.total_budget),
+        travel_style=parsed.get("travel_style", request.travel_style),
+        travelers=request.travelers,
+    )
+    return await orchestrate_complete_plan(orchestrate_req, db)
+
+
+@app.post("/api/plan/replan/{trip_id}")
+async def replan_trip(trip_id: int, request: ReplanRequest, db: Session = Depends(get_db)):
+    """Auto-replan an existing trip with updated constraints."""
+    trip = db.query(Trip).filter_by(id=trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail=f"Trip with ID {trip_id} not found")
+
+    orchestrate_req = OrchestratorTripRequest(
+        destination=trip.destination,
+        start_date=trip.start_date.isoformat(),
+        end_date=trip.end_date.isoformat(),
+        total_budget=request.total_budget or trip.budget_limit,
+        travel_style=request.travel_style or "balanced",
+        travelers=request.travelers or 2,
+    )
+    trip.status = "planning"
+    db.commit()
+    result = await orchestrate_complete_plan(orchestrate_req, db)
+    agent_log = AgentLog(
+        trip_id=trip_id,
+        agent_name="orchestrator",
+        action="auto-replan",
+        message=request.reason,
+        input_data=request.model_dump(),
+        output_data={"new_trip_id": result["trip_id"]},
+    )
+    db.add(agent_log)
+    db.commit()
+    return result
+
+
+@app.get("/api/share/{share_token}")
+def get_shared_trip(share_token: str, db: Session = Depends(get_db)):
+    """Public share endpoint for read-only trip plan access."""
+    trip = db.query(Trip).filter_by(share_token=share_token).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Shared trip not found")
+    return get_trip_details(trip.id, db)
+
+
+@app.post("/api/feedback")
+async def submit_feedback(request: FeedbackRequest, db: Session = Depends(get_db)):
+    """Submit thumbs up/down feedback on a recommendation."""
+    plan = db.query(TripPlan).filter_by(id=request.trip_plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Trip plan not found")
+    if request.rating not in (1, -1):
+        raise HTTPException(status_code=400, detail="Rating must be 1 (up) or -1 (down)")
+
+    user = create_default_user_if_not_exists(db)
+    feedback = Feedback(
+        trip_plan_id=request.trip_plan_id,
+        item_type=request.item_type,
+        item_id=request.item_id,
+        rating=request.rating,
+        comments=request.comments,
+    )
+    db.add(feedback)
+    db.commit()
+
+    await upsert_feedback(user.id, request.item_id, request.rating, request.item_type)
+    return {"status": "recorded", "feedback_id": feedback.id}
+
+
+@app.get("/api/preferences")
+def get_preferences(db: Session = Depends(get_db)):
+    user = create_default_user_if_not_exists(db)
+    pref = db.query(Preference).filter_by(user_id=user.id).first()
+    if not pref:
+        return {"budget_tier": "mid-range", "dietary_preferences": [], "travel_style": [], "interests": []}
+    return {
+        "budget_tier": pref.budget_tier,
+        "dietary_preferences": pref.dietary_preferences or [],
+        "travel_style": pref.travel_style or [],
+        "interests": pref.interests or [],
+    }
+
+
+@app.put("/api/preferences")
+async def update_preferences(request: PreferenceRequest, db: Session = Depends(get_db)):
+    user = create_default_user_if_not_exists(db)
+    pref = db.query(Preference).filter_by(user_id=user.id).first()
+    data = request.model_dump()
+    if not pref:
+        pref = Preference(user_id=user.id, **data)
+        db.add(pref)
+    else:
+        for k, v in data.items():
+            setattr(pref, k, v)
+    db.commit()
+    await upsert_preference(user.id, data)
+    return {"status": "updated", "preferences": data}
+
 
 

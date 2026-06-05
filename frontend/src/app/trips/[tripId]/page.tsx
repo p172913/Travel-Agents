@@ -1,55 +1,72 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { getTripDetails, TripDetails } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { getTripDetails, replanTrip, submitFeedback } from "@/lib/api";
 
 export default function TripDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const tripId = params?.tripId ? Number(params.tripId) : NaN;
+  const [replanning, setReplanning] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const [trip, setTrip] = useState<TripDetails | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: trip, isLoading, error } = useQuery({
+    queryKey: ["trip", tripId],
+    queryFn: () => getTripDetails(tripId),
+    enabled: !Number.isNaN(tripId),
+  });
 
-  useEffect(() => {
-    if (Number.isNaN(tripId)) {
-      router.replace("/trips");
-      return;
+  if (Number.isNaN(tripId)) {
+    router.replace("/trips");
+    return null;
+  }
+
+  async function handleFeedback(planId: number, item: Record<string, unknown>, rating: 1 | -1) {
+    await submitFeedback({
+      trip_plan_id: planId,
+      item_type: String(item.type || "activity"),
+      item_id: String(item.id || item.name),
+      rating,
+    });
+    queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
+  }
+
+  async function handleReplan() {
+    setReplanning(true);
+    try {
+      const result = await replanTrip(tripId);
+      router.push(`/trips/${result.trip_id}`);
+    } finally {
+      setReplanning(false);
     }
+  }
 
-    async function fetchTrip() {
-      try {
-        const details = await getTripDetails(tripId);
-        setTrip(details);
-      } catch (err) {
-        setError("Unable to load this trip. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    }
+  function copyShareLink() {
+    if (!trip?.share_token) return;
+    const url = `${window.location.origin}/t/${trip.share_token}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
-    fetchTrip();
-  }, [tripId, router]);
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 px-6 py-10 text-slate-900 sm:px-10">
-        <div className="mx-auto max-w-5xl rounded-3xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/50">Loading trip details…</div>
+      <div className="min-h-screen bg-slate-50 px-6 py-10">
+        <div className="mx-auto max-w-5xl rounded-3xl border bg-white p-8">Loading trip details…</div>
       </div>
     );
   }
 
   if (error || !trip) {
     return (
-      <div className="min-h-screen bg-slate-50 px-6 py-10 text-slate-900 sm:px-10">
-        <div className="mx-auto max-w-5xl rounded-3xl border border-red-200 bg-red-50 p-8 text-red-700 shadow-lg shadow-red-100/60">
-          <p>{error ?? "Trip not found."}</p>
-          <Link href="/trips" className="mt-4 inline-block rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800">
-            Back to trips
-          </Link>
+      <div className="min-h-screen bg-slate-50 px-6 py-10">
+        <div className="mx-auto max-w-5xl rounded-3xl border border-red-200 bg-red-50 p-8 text-red-700">
+          <p>Unable to load this trip.</p>
+          <Link href="/trips" className="mt-4 inline-block rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">Back to trips</Link>
         </div>
       </div>
     );
@@ -57,118 +74,99 @@ export default function TripDetailPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-10 text-slate-900 sm:px-10">
-      <div className="mx-auto max-w-5xl rounded-3xl bg-white p-8 shadow-lg shadow-slate-200/50">
+      <div className="mx-auto max-w-5xl rounded-3xl bg-white p-8 shadow-lg">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.3em] text-sky-600">Trip details</p>
-            <h1 className="mt-2 text-3xl font-semibold text-slate-950">{trip.title}</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{trip.title}</h1>
             <p className="mt-2 text-sm text-slate-600">{trip.destination} • {trip.start_date} → {trip.end_date}</p>
           </div>
-          <Link href="/trips" className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200">
-            Back to trips
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={copyShareLink} className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold hover:bg-slate-200">
+              {copied ? "Copied!" : "Share"}
+            </button>
+            <button onClick={handleReplan} disabled={replanning} className="rounded-2xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">
+              {replanning ? "Replanning…" : "Auto-replan"}
+            </button>
+            <Link href="/trips" className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold hover:bg-slate-200">Back</Link>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-            <h2 className="text-base font-semibold text-slate-900">Budget</h2>
-            <p className="mt-2 text-slate-700">₹{trip.budget_limit.toLocaleString()}</p>
+            <h2 className="font-semibold">Budget</h2>
+            <p className="mt-2">₹{trip.budget_limit.toLocaleString()}</p>
           </div>
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-            <h2 className="text-base font-semibold text-slate-900">Status</h2>
-            <p className="mt-2 text-slate-700 capitalize">{trip.status}</p>
+            <h2 className="font-semibold">Status</h2>
+            <p className="mt-2 capitalize">{trip.status}</p>
           </div>
         </div>
 
         <section className="mt-8 space-y-6">
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-            <h2 className="text-xl font-semibold text-slate-950">Plans</h2>
-            {trip.plans.length === 0 ? (
-              <p className="mt-3 text-slate-600">No saved plans yet. Run orchestration to generate one.</p>
-            ) : (
-              <div className="mt-4 space-y-4">
-                {trip.plans.map((plan) => (
-                  <div key={plan.plan_id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-lg font-semibold text-slate-950">Plan #{plan.plan_id}</p>
-                      <p className="text-sm text-slate-500">Created {new Date(plan.created_at).toLocaleDateString()}</p>
-                    </div>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">Budget breakdown</h3>
-                        <pre className="mt-2 overflow-x-auto rounded-2xl bg-slate-100 p-3 text-sm text-slate-700">{JSON.stringify(plan.budget_breakdown, null, 2)}</pre>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">Explanation</h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-700">{plan.explanation || "No explanation available."}</p>
-                      </div>
-                    </div>
-                    <div className="mt-4">
-                      <h3 className="text-sm font-semibold text-slate-900">Itinerary</h3>
-                      <div className="mt-2 space-y-4">
-                        {plan.itinerary.days && plan.itinerary.days.length > 0 ? (
-                          plan.itinerary.days.map((day: any) => (
-                            <div key={day.day} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                              <p className="text-sm font-semibold text-slate-900">Day {day.day} • {new Date(day.date).toLocaleDateString()}</p>
-                              <div className="mt-3 space-y-3">
-                                {day.items?.map((item: any, index: number) => (
-                                  <div key={index} className="rounded-2xl bg-white p-3 shadow-sm">
-                                    <p className="text-sm font-semibold text-slate-900">{item.time} — {item.title}</p>
-                                    <p className="mt-1 text-sm leading-6 text-slate-700">{item.details}</p>
-                                    {item.reason ? (
-                                      <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">Why: {item.reason}</p>
-                                    ) : null}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-slate-600">No itinerary details available.</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                      <h3 className="text-sm font-semibold text-slate-900">Recommendations</h3>
-                      {plan.recommendations && plan.recommendations.length > 0 ? (
-                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                          {plan.recommendations.map((item: any, index: number) => (
-                            <div key={index} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                              <p className="text-sm font-semibold text-slate-900">{item.name}</p>
-                              <p className="mt-1 text-sm text-slate-600">{item.type}</p>
-                              <p className="mt-3 text-sm leading-6 text-slate-700">{item.description || item.rationale}</p>
-                              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
-                                <span>Rating: {item.rating}</span>
-                                {item.price_level ? <span>Price level: {item.price_level}</span> : null}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-sm text-slate-600">No recommendations available for this plan.</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
+          {trip.plans.map((plan) => (
+            <div key={plan.plan_id} className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+              <h2 className="text-xl font-semibold">Plan #{plan.plan_id}</h2>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Budget breakdown</h3>
+                  <pre className="mt-2 overflow-x-auto rounded-2xl bg-white p-3 text-sm">{JSON.stringify(plan.budget_breakdown, null, 2)}</pre>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">Why AI picked this plan</h3>
+                  <p className="mt-2 text-sm leading-6">{plan.explanation || "No explanation available."}</p>
+                </div>
               </div>
-            )}
-          </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-            <h2 className="text-xl font-semibold text-slate-950">Requests</h2>
-            {trip.requests.length === 0 ? (
-              <p className="mt-3 text-slate-600">No request history available.</p>
-            ) : (
-              <ul className="mt-4 space-y-3">
-                {trip.requests.map((request) => (
-                  <li key={request.request_id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-sm font-semibold text-slate-900">{request.prompt}</p>
-                    <p className="mt-1 text-sm text-slate-500">Status: {request.status}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+              {plan.itinerary?.days ? (
+                <div className="mt-6 space-y-4">
+                  <h3 className="font-semibold">Itinerary</h3>
+                  {(plan.itinerary.days as Array<Record<string, unknown>>).map((day) => (
+                    <div key={String(day.day)} className="rounded-3xl border bg-white p-4">
+                      <p className="text-sm font-semibold">Day {String(day.day)}</p>
+                      <div className="mt-3 space-y-3">
+                        {(day.items as Array<Record<string, unknown>>)?.map((item, index) => (
+                          <div key={index} className="rounded-2xl bg-slate-50 p-3">
+                            <p className="text-sm font-semibold">{String(item.time)} — {String(item.title)}</p>
+                            <p className="mt-1 text-sm">{String(item.details)}</p>
+                            {item.reason ? (
+                              <div className="mt-2 rounded-xl bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                                ✓ {String(item.reason)}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {plan.recommendations?.length > 0 ? (
+                <div className="mt-6">
+                  <h3 className="font-semibold">Recommendations</h3>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    {plan.recommendations.map((item, index) => (
+                      <div key={index} className="rounded-3xl border bg-white p-4">
+                        <p className="font-semibold">{String(item.name)}</p>
+                        <p className="text-sm text-slate-600">{String(item.type)}</p>
+                        <p className="mt-2 text-sm">{String(item.description || item.rationale)}</p>
+                        {item.rationale ? (
+                          <div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                            ✓ {String(item.rationale)}
+                          </div>
+                        ) : null}
+                        <div className="mt-3 flex gap-2">
+                          <button onClick={() => handleFeedback(plan.plan_id, item, 1)} className="rounded-xl border px-3 py-1 text-sm hover:bg-slate-50" title="Helpful">👍</button>
+                          <button onClick={() => handleFeedback(plan.plan_id, item, -1)} className="rounded-xl border px-3 py-1 text-sm hover:bg-slate-50" title="Not helpful">👎</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
         </section>
       </div>
     </div>

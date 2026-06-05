@@ -4,7 +4,7 @@ from booking_agent.agent import run_booking_search
 
 
 def test_run_booking_search_returns_structure():
-    result = asyncio.get_event_loop().run_until_complete(
+    result = asyncio.run(
         run_booking_search("Goa", "2026-07-01", "2026-07-04", travelers=1)
     )
 

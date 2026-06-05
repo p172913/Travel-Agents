@@ -9,6 +9,8 @@ from pydantic_ai.models import KnownModelName
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from research_agent.schemas import DestinationResearch, PlaceDetail
+from research_agent.google_places import search_google_places
+from shared.cache import cached_json
 
 # Initialize PydanticAI Agent
 # To prevent raising credentials errors on import when API keys are not set,
@@ -105,6 +107,23 @@ async def search_tavily(ctx: RunContext[None], query: str) -> str:
     except Exception as e:
         return f"Error running search query: {str(e)}"
     return "Tavily search failed."
+
+@agent.tool
+async def search_google_places_tool(ctx: RunContext[None], destination: str, query: str = "top tourist attractions") -> str:
+    """Search Google Places for attractions, restaurants, and points of interest.
+    
+    Args:
+        destination: City or destination name.
+        query: Search query (e.g. 'hidden gems', 'best restaurants').
+    """
+    places = await search_google_places(destination, query)
+    if not places:
+        return "Google Places API not configured or no results found."
+    return "\n\n".join(
+        f"Name: {p.name}\nLocation: {p.location}\nRating: {p.rating}\nDescription: {p.description}"
+        for p in places
+    )
+
 
 @agent.tool
 async def get_weather(ctx: RunContext[None], destination: str, month: Optional[str] = None) -> str:
@@ -263,27 +282,41 @@ def generate_mock_research(destination: str, month: Optional[str] = None) -> Des
         )
 
 
-async def run_research(destination: str, month: Optional[str] = None) -> DestinationResearch:
-    """Executes destination research. Checks environment for API keys, 
-    running the live agent if configured or falling back to high-fidelity mock data.
-    """
+async def _run_research_inner(destination: str, month: Optional[str] = None) -> DestinationResearch:
+    """Core research logic without caching."""
     openai_key = os.getenv("OPENAI_API_KEY")
     gemini_key = os.getenv("GEMINI_API_KEY")
-    
-    # If no LLM keys are configured, return the high-fidelity mock data
+
     if not openai_key and not gemini_key:
-        return generate_mock_research(destination, month)
-        
-    # If we have a key, run the live PydanticAI agent
-    # We can override the model if GEMINI_API_KEY is configured
-    try:
-        prompt = f"Perform research for destination: {destination}"
-        if month:
-            prompt += f", visiting in the month of {month}"
-            
-        result = await agent.run(prompt)
-        return result.data
-    except Exception as e:
-        # Log failure and fall back to mock to avoid breaking app routes
-        print(f"Error running PydanticAI agent: {str(e)}. Falling back to mock data.", file=sys.stderr)
-        return generate_mock_research(destination, month)
+        result = generate_mock_research(destination, month)
+    else:
+        try:
+            prompt = f"Perform research for destination: {destination}"
+            if month:
+                prompt += f", visiting in the month of {month}"
+            agent_result = await agent.run(prompt)
+            result = agent_result.data
+        except Exception as e:
+            print(f"Error running PydanticAI agent: {str(e)}. Falling back to mock data.", file=sys.stderr)
+            result = generate_mock_research(destination, month)
+
+    # Enrich with Google Places when available
+    google_places = await search_google_places(destination)
+    if google_places and len(result.top_places) < 3:
+        result.top_places = (result.top_places + google_places)[:5]
+    hidden = await search_google_places(destination, "hidden gems off the beaten path")
+    if hidden:
+        result.hidden_gems = (result.hidden_gems + hidden)[:5]
+    return result
+
+
+async def run_research(destination: str, month: Optional[str] = None) -> DestinationResearch:
+    """Executes destination research with Redis caching and Google Places enrichment."""
+    month_key = month or "any"
+    payload = await cached_json(
+        "research",
+        (destination.lower(), month_key),
+        ttl=3600,
+        fetcher=lambda: _run_research_inner(destination, month),
+    )
+    return DestinationResearch(**payload)

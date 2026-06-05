@@ -1,11 +1,13 @@
 import datetime
 import os
 import sys
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-# Add workspace root directory to python path to resolve modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -13,19 +15,28 @@ from shared.db import Base, get_db
 from shared.models import User, Trip
 from main import app
 
-
-TEST_DB_URL = "sqlite:///./test_travelsouls.db"
+TEST_DB_URL = "sqlite:///:memory:"
+engine = create_engine(
+    TEST_DB_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def override_get_db():
-    engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture(autouse=True)
+def reset_db():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    yield
 
 
 app.dependency_overrides[get_db] = override_get_db
@@ -46,14 +57,11 @@ def test_get_trip_details_not_found():
 
 
 def test_trip_endpoints_return_saved_trip():
-    # Create a default user and a trip in the test DB
-    db = next(override_get_db())
-    user = db.query(User).filter_by(email="default@travelsouls.com").first()
-    if not user:
-        user = User(email="default@travelsouls.com", full_name="Default Traveler")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+    db = TestingSessionLocal()
+    user = User(email="default@travelsouls.com", full_name="Default Traveler")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     trip = Trip(
         user_id=user.id,
@@ -62,16 +70,18 @@ def test_trip_endpoints_return_saved_trip():
         start_date=datetime.date(2026, 7, 1),
         end_date=datetime.date(2026, 7, 5),
         budget_limit=50000.0,
-        status="planning"
+        status="planning",
     )
     db.add(trip)
     db.commit()
     db.refresh(trip)
+    db.close()
 
     list_response = client.get("/api/trips")
     assert list_response.status_code == 200
     data = list_response.json()
     assert any(item["trip_id"] == trip.id for item in data)
+    assert "share_token" in data[0]
 
     detail_response = client.get(f"/api/trips/{trip.id}")
     assert detail_response.status_code == 200
@@ -79,3 +89,4 @@ def test_trip_endpoints_return_saved_trip():
     assert detail_data["trip_id"] == trip.id
     assert detail_data["destination"] == "Goa"
     assert detail_data["plans"] == []
+    assert "share_url" in detail_data

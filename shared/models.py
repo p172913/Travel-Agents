@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from typing import List, Optional
 from sqlalchemy import (
     Column,
@@ -55,6 +56,7 @@ class Trip(Base):
     end_date = Column(Date, nullable=False)
     budget_limit = Column(Float, nullable=False)
     status = Column(String(50), default="planning")  # planning, draft, confirmed, past
+    share_token = Column(String(36), unique=True, index=True, default=lambda: str(uuid.uuid4()))
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     user = relationship("User", back_populates="trips")

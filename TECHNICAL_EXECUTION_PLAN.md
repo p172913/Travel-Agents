@@ -69,27 +69,33 @@ Agent       Agent       Agent         Agent
 
 ## Current Project Status
 
-### Completed foundation
+### Completed (engineering execution plan — auth intentionally excluded)
 
-- Multi-service folder structure exists
-- `api_gateway` FastAPI scaffold in place
-- `orchestrator` service with prototype agent coordination
-- `research_agent`, `budget_agent`, `booking_agent`, `recommendation_agent` services present
-- Shared SQLAlchemy models for users, trips, plans, bookings, logs, feedback
-- Local dev infra with Postgres, Redis, Docker Compose
-- Frontend repository exists and is configured for Next.js 16 + Tailwind CSS
+- Multi-service monorepo with FastAPI gateway, LangGraph orchestrator, and four agents
+- Redis caching layer (with in-memory fallback) across research, booking, recommendation
+- Pinecone personalization store (with in-memory fallback) + feedback loop
+- Amadeus flight/hotel search integration (with mock fallback)
+- Google Places enrichment for research agent
+- Structured explainability layer (`shared/explainability.py`) on all plan outputs
+- Trip share URLs (`/t/{token}`) + public share API
+- Chat planner UI (`/chat`) with natural-language prompt parsing
+- Auto-replan endpoint (`POST /api/plan/replan/{trip_id}`)
+- Preferences API (`GET/PUT /api/preferences`) + feedback API (`POST /api/feedback`)
+- Frontend: React Query, Zustand, dashboard, trip detail with 👍/👎, share, replan
+- Alembic migrations, `.env.example`, OpenTelemetry hooks, Prometheus config template
+- CI/CD: fixed Python test workflow covering all agents + golden dataset (25 tests passing)
+- Docker Compose (Postgres, Redis), ECS/Render deployment templates
 
-### Remaining work
+### Intentionally excluded
 
-- No authentication system implemented
-- Frontend is still default placeholder content
-- Agents are currently mock/prototype implementations
-- No actual third-party travel API integrations
-- No LangGraph workflow orchestration
-- No personalization / embeddings / Pinecone integration
-- No production deployment IaC
-- No CI/CD pipelines or automated tests for complete system
-- No structured explainability layer across all outputs
+- Authentication (login/signup/JWT) — per project decision, uses default user seed
+
+### Remaining for production launch
+
+- Live API keys (OpenAI, Amadeus, Google Places, Pinecone) in deployed environment
+- Full Terraform/IaC for AWS ECS + RDS + ElastiCache
+- Beta user cohort (20–50 users) and NPS/SUS measurement
+- Load testing for 1,000 concurrent users
 
 ---
 

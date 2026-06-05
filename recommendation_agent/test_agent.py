@@ -4,7 +4,7 @@ from recommendation_agent.agent import run_recommendation_engine
 
 
 def test_run_recommendation_engine_returns_structure():
-    result = asyncio.get_event_loop().run_until_complete(
+    result = asyncio.run(
         run_recommendation_engine("Goa", travel_style="adventure")
     )
 
@@ -16,7 +16,7 @@ def test_run_recommendation_engine_returns_structure():
 
 
 def test_luxury_travel_style():
-    result = asyncio.get_event_loop().run_until_complete(
+    result = asyncio.run(
         run_recommendation_engine("Paris", travel_style="luxury")
     )
 

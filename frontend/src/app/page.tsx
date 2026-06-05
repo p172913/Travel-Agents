@@ -47,10 +47,10 @@ export default function Home() {
               View Saved Trips
             </Link>
             <Link
-              href="/start"
+              href="/chat"
               className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-center text-base font-semibold text-slate-900 transition hover:bg-slate-50"
             >
-              Start Planning
+              Chat Planner
             </Link>
           </div>
         </section>
@@ -63,7 +63,7 @@ export default function Home() {
                 <h2 className="mt-4 text-xl font-semibold text-slate-950">{phase.highlight}</h2>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{phase.description}</p>
                 <Link
-                  href="/start"
+                  href="/chat"
                   className="mt-6 inline-flex rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
                   Run phase
